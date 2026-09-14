@@ -33,7 +33,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .svc-row label{flex:1;font-size:20px;color:#1a1a1a;cursor:pointer}
 .svc-row input[type=checkbox]{width:26px;height:26px;cursor:pointer;accent-color:#1a1a1a}
 .svc-row input[type=radio]{width:26px;height:26px;cursor:pointer;accent-color:#1a1a1a}
-.badge{font-size:15px;padding:4px 11px;border-radius:6px;background:#e8f0fe;color:#1a56db}
+.badge{font-size:15px;padding:4px 11px;border-radius:6px;background:#faf1d9;color:#8a6d1f}
 .term-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:1rem 0}
 .term-opt{border:1px solid #ddd;border-radius:8px;padding:16px 4px;text-align:center;font-size:17px;font-weight:600;cursor:pointer;background:#fafafa}
 .term-opt.sel{border-color:#1a1a1a;background:#1a1a1a;color:#fff}
@@ -140,7 +140,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <div class="field" style="margin-bottom:1.25rem">
       <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-weight:600;color:#333">
         <input type="checkbox" id="isaddon" style="width:22px;height:22px;flex-shrink:0;accent-color:#1a1a1a">
-        Are you currently a ZKC client?
+        I'm already a ZKC client
       </label>
     </div>
     <button class="btn" onclick="goStep2()">Next - choose your services</button>
@@ -180,7 +180,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
       <div class="cat-label">AI Automation</div>
       <div id="ai-tier-block">
-        <p style="font-size:15px;color:#555;line-height:1.6;margin-bottom:.75rem">Pick a package and we take over your AI automation end to end — set up, monitored, and fixed if anything breaks. Prefer to <a href="#" onclick="useAICustom();return false;" style="color:#1a56db;text-decoration:underline">build it yourself, item by item</a>?</p>
         <div class="svc-row"><input type="radio" name="aitier" id="tier-essentials" data-setup="28" data-ongoing="13"><label for="tier-essentials">AI Essentials <span class="badge">3 workflows, 1 agent</span><span class="info-icon" tabindex="0">i<span class="info-tooltip">Up to 3 automated workflows (we connect your tools so repetitive tasks run on their own) and 1 AI agent (a dedicated AI built to handle one task in your business).</span></span></label></div>
         <div class="svc-row"><input type="radio" name="aitier" id="tier-growth" data-setup="116" data-ongoing="32"><label for="tier-growth">AI Growth <span class="badge">6 workflows, 2 agents, 1 system</span><span class="info-icon" tabindex="0">i<span class="info-tooltip">Up to 6 automated workflows, 2 AI agents, and 1 AI system (a larger AI solution built around a specific process in your business).</span></span></label></div>
         <div class="svc-row"><input type="radio" name="aitier" id="tier-scale" data-setup="218" data-ongoing="58"><label for="tier-scale">AI Scale <span class="badge">10 workflows, 4 agents, 2 systems</span><span class="info-icon" tabindex="0">i<span class="info-tooltip">Up to 10 automated workflows, 4 AI agents, and 2 AI systems.</span></span></label></div>
@@ -228,7 +227,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   </div>
   <div class="card" id="quote-card"></div>
   <div class="budget-followup" id="budget-followup">
-    <a href="#" id="budget-toggle" onclick="showBudgetForm();return false;">Have a different budget in mind?</a>
+    <a href="#" id="budget-toggle" onclick="showBudgetForm();return false;">This doesn't fit my budget</a>
     <div class="budget-form" id="budget-form">
       <label for="budget-input">What budget were you hoping to stay within?</label>
       <input id="budget-input" type="number" placeholder="$">
@@ -273,6 +272,9 @@ const CUSTOM_PROMO_CODE="ZEKEKEMP";
 let promoApplied=false;
 let customPromoActive=false;
 let customDiscountPct=0;
+let appliedPromoCode=null;
+const PROMO_NAMES={KEMP2026:"New Client Promotion",C2C2026:"C2C Partner Promotion"};
+const AD_IDS=["meta","google","microsoft","tiktok","youtube"];
 let lastQuote=null;
 
 function setProgress(n){[1,2,3].forEach(i=>document.getElementById("d"+i).className="dot"+(i<=n?" on":""));}
@@ -349,12 +351,14 @@ function applyPromo(){
   if(val===CUSTOM_PROMO_CODE){
     customPromoActive=true;
     promoApplied=false;
+    appliedPromoCode=null;
     document.getElementById("custom-discount-row").classList.add("show");
     msg.textContent="Enter the discount percentage below.";
     msg.className="promo-msg ok";
   }else if(PROMO_CODES.includes(val)){
     promoApplied=true;
     customPromoActive=false;
+    appliedPromoCode=val;
     document.getElementById("custom-discount-row").classList.remove("show");
     msg.textContent="Code applied — new customer discount active.";
     msg.className="promo-msg ok";
@@ -393,6 +397,8 @@ function computeQuote(){
   const budget=document.getElementById("fbudget").value;
 
   let baseFee=0, adFee=0, oneTimeFee=0, selected=[], serviceNote="", hasRecurring=false;
+  let monthlyLineItems=[], oneTimeLineItems=[];
+  let bundleDiscountMonthly=0, bundleDiscountOneTime=0;
 
   if(isFullSystem){
     const flatBase=FULL_SYSTEM_BASE[stage];
@@ -404,6 +410,8 @@ function computeQuote(){
     let monthlyHoursByStage={marketing:0,ai:0,cx:0};
     let oneTimeFeeByStage={marketing:0,ai:0,cx:0};
     const stagesPresent=new Set();
+    const rawMonthlyItems=[]; // {id,name,stage,price}
+    const rawOneTimeItems=[];
 
     SVCS.forEach(id=>{
       const el=document.getElementById(id);
@@ -412,13 +420,19 @@ function computeQuote(){
       const o=parseInt(el.dataset.ongoing)||0;
       const st=STAGE_OF[id];
       stagesPresent.add(st);
+      const svcName=el.nextElementSibling.firstChild.textContent.trim();
+      selected.push(svcName);
       if(ONE_TIME_SVCS.includes(id)){
-        oneTimeFeeByStage[st] += s * RATE * mult * (1-disc);
+        const price=s * RATE * mult * (1-disc);
+        oneTimeFeeByStage[st] += price;
+        rawOneTimeItems.push({id,name:svcName,stage:st,price});
       }else{
-        monthlyHoursByStage[st] += (s/term) + o;
+        const hrs=(s/term) + o;
+        monthlyHoursByStage[st] += hrs;
         hasRecurring=true;
+        const price=hrs * RATE * mult * (1-disc) * (1+termAdj);
+        rawMonthlyItems.push({id,name:svcName,stage:st,price});
       }
-      selected.push(el.nextElementSibling.firstChild.textContent.trim());
     });
 
     const hasMeta=document.getElementById("meta").checked;
@@ -427,9 +441,14 @@ function computeQuote(){
     const hasTiktok=document.getElementById("tiktok").checked;
     const hasYoutube=document.getElementById("youtube").checked;
     if(hasMeta||hasGoogle||hasMicrosoft||hasTiktok||hasYoutube){
-      monthlyHoursByStage.marketing += (12/term); // bundled landing page + KPI dashboard, one-time, amortized
+      const bundleHrs=(12/term);
+      const bundlePrice=bundleHrs * RATE * mult * (1-disc) * (1+termAdj);
+      monthlyHoursByStage.marketing += bundleHrs; // bundled landing page + KPI dashboard, one-time, amortized
       stagesPresent.add("marketing");
       serviceNote="Includes a landing page + KPI dashboard, on us.";
+      // fold the bundled amount silently into whichever ad service appears first — not disclosed as a separate line
+      const adItem=rawMonthlyItems.find(it=>AD_IDS.includes(it.id));
+      if(adItem) adItem.price += bundlePrice;
     }
 
     // Cross-stage discount: Marketing is never discounted when built from scratch,
@@ -445,21 +464,35 @@ function computeQuote(){
       if(stagesPresent.has("cx")) stageDisc.cx=0.15;
     }
 
-    ["marketing","ai","cx"].forEach(st=>{
-      const stageBase = monthlyHoursByStage[st] * RATE * mult * (1-disc) * (1+termAdj);
-      baseFee += stageBase * (1-stageDisc[st]);
-      oneTimeFee += oneTimeFeeByStage[st] * (1-stageDisc[st]);
+    rawMonthlyItems.forEach(it=>{
+      const discounted=it.price * (1-stageDisc[it.stage]);
+      bundleDiscountMonthly += (it.price - discounted);
+      baseFee += discounted;
+      monthlyLineItems.push({name:it.name,price:roundPrice(discounted)});
+    });
+    rawOneTimeItems.forEach(it=>{
+      const discounted=it.price * (1-stageDisc[it.stage]);
+      bundleDiscountOneTime += (it.price - discounted);
+      oneTimeFee += discounted;
+      oneTimeLineItems.push({name:it.name,price:roundPrice(discounted)});
     });
 
     if(adSpend>=5000) adFee = adSpend * 0.07;
   }
 
+  let promoName=null, promoDiscountMonthly=0, promoDiscountOneTime=0;
   if(customPromoActive){
-    baseFee = baseFee * (1-customDiscountPct);
-    oneTimeFee = oneTimeFee * (1-customDiscountPct);
+    promoName="Founder's Promotion";
+    promoDiscountMonthly = baseFee * customDiscountPct;
+    promoDiscountOneTime = oneTimeFee * customDiscountPct;
+    baseFee = baseFee - promoDiscountMonthly;
+    oneTimeFee = oneTimeFee - promoDiscountOneTime;
   }else if(promoApplied){
-    baseFee = baseFee * 0.80;
-    oneTimeFee = oneTimeFee * 0.80;
+    promoName=PROMO_NAMES[appliedPromoCode] || "Promo Discount";
+    promoDiscountMonthly = baseFee * 0.20;
+    promoDiscountOneTime = oneTimeFee * 0.20;
+    baseFee = baseFee - promoDiscountMonthly;
+    oneTimeFee = oneTimeFee - promoDiscountOneTime;
   }
 
   if(selected.length===0){return null;}
@@ -468,7 +501,10 @@ function computeQuote(){
   const roundedOneTime = oneTimeFee>0 ? roundPrice(oneTimeFee) : 0;
   const total = roundedBase + Math.round(adFee);
 
-  return {name,email,biz,budget,stage,term,isFullSystem,selected,serviceNote,roundedBase,adFee:Math.round(adFee),total,adSpend,oneTimeFee:roundedOneTime,hasRecurring};
+  return {name,email,biz,budget,stage,term,isFullSystem,selected,serviceNote,roundedBase,adFee:Math.round(adFee),total,adSpend,oneTimeFee:roundedOneTime,hasRecurring,
+    monthlyLineItems,oneTimeLineItems,
+    bundleDiscountMonthly:Math.round(bundleDiscountMonthly),bundleDiscountOneTime:Math.round(bundleDiscountOneTime),
+    promoName,promoDiscountMonthly:Math.round(promoDiscountMonthly),promoDiscountOneTime:Math.round(promoDiscountOneTime)};
 }
 
 function syncTermFromStep1(){
@@ -513,7 +549,17 @@ function renderQuote(){
   if(q.hasRecurring){
     const termLabel=q.term===1?"Month-to-Month":q.term+"-Month";
     html+="<div class='metric-grid'><div class='metric'><div class='mlabel'>Term</div><div class='mval'>"+termLabel+"</div></div><div class='metric'><div class='mlabel'>Total / month</div><div class='mval'>$"+q.total.toLocaleString()+"</div></div></div>";
-    html+="<div class='qline'><span>Base fee</span><span>$"+q.roundedBase.toLocaleString()+"/mo</span></div>";
+    if(!q.isFullSystem && q.monthlyLineItems.length>1){
+      q.monthlyLineItems.forEach(it=>{
+        html+="<div class='qline'><span>"+it.name+"</span><span>$"+it.price.toLocaleString()+"/mo</span></div>";
+      });
+      if(q.bundleDiscountMonthly>0) html+="<div class='qline'><span>ZKC Bundle</span><span>-$"+q.bundleDiscountMonthly.toLocaleString()+"/mo</span></div>";
+      if(q.promoName && q.promoDiscountMonthly>0) html+="<div class='qline'><span>"+q.promoName+"</span><span>-$"+q.promoDiscountMonthly.toLocaleString()+"/mo</span></div>";
+    }else{
+      html+="<div class='qline'><span>Base fee</span><span>$"+q.roundedBase.toLocaleString()+"/mo</span></div>";
+      if(!q.isFullSystem && q.bundleDiscountMonthly>0) html+="<div class='qline'><span>ZKC Bundle</span><span>-$"+q.bundleDiscountMonthly.toLocaleString()+"/mo</span></div>";
+      if(q.promoName && q.promoDiscountMonthly>0) html+="<div class='qline'><span>"+q.promoName+"</span><span>-$"+q.promoDiscountMonthly.toLocaleString()+"/mo</span></div>";
+    }
     if(q.adFee>0) html+="<div class='qline'><span>Ad spend fee (7% of $"+q.adSpend.toLocaleString()+")</span><span>$"+q.adFee.toLocaleString()+"/mo</span></div>";
     if(q.isFullSystem) html+="<div class='qline'><span>Ad spend fee</span><span>Included — $0</span></div>";
     html+="<div class='qline tot'><span>Total</span><span>$"+q.total.toLocaleString()+"/mo</span></div>";
@@ -521,6 +567,15 @@ function renderQuote(){
 
   if(q.oneTimeFee>0){
     html+="<div class='metric-grid'><div class='metric' style='grid-column:1 / -1'><div class='mlabel'>One-time price</div><div class='mval'>$"+q.oneTimeFee.toLocaleString()+"</div></div></div>";
+    if(q.oneTimeLineItems.length>1){
+      q.oneTimeLineItems.forEach(it=>{
+        html+="<div class='qline'><span>"+it.name+"</span><span>$"+it.price.toLocaleString()+"</span></div>";
+      });
+      if(q.bundleDiscountOneTime>0) html+="<div class='qline'><span>ZKC Bundle</span><span>-$"+q.bundleDiscountOneTime.toLocaleString()+"</span></div>";
+    }else if(q.bundleDiscountOneTime>0){
+      html+="<div class='qline'><span>ZKC Bundle</span><span>-$"+q.bundleDiscountOneTime.toLocaleString()+"</span></div>";
+    }
+    if(q.promoName && q.promoDiscountOneTime>0) html+="<div class='qline'><span>"+q.promoName+"</span><span>-$"+q.promoDiscountOneTime.toLocaleString()+"</span></div>";
     html+="<div class='qline tot'><span>Due at project start</span><span>$"+q.oneTimeFee.toLocaleString()+"</span></div>";
   }
 
