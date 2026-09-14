@@ -226,6 +226,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <input id="promo-input" type="text" placeholder="Enter code">
     <button onclick="applyPromo()">Apply</button>
   </div>
+  <div class="promo-row" id="custom-discount-row">
+    <input id="custom-discount-input" type="number" min="0" max="100" placeholder="Discount %">
+    <button onclick="applyCustomDiscount()">Set</button>
+  </div>
   <div class="promo-msg" id="promo-msg"></div>
 
   <a class="btn btn-cal" href="https://calendly.com/zeke-zkconsults/30min" target="_blank">Schedule a free 15-min call with Zeke</a>
@@ -242,7 +246,10 @@ const ONE_TIME_SVCS=["lander","website","kpi","procmap","opsdash","sops"];
 const FULL_SYSTEM_BASE={startup:10000,growth:15000,maturity:20000};
 const FORMSPREE="https://formspree.io/f/mqegjrdv";
 const PROMO_CODES=["KEMP2026","C2C2026"];
+const CUSTOM_PROMO_CODE="ZEKEKEMP";
 let promoApplied=false;
+let customPromoActive=false;
+let customDiscountPct=0;
 let lastQuote=null;
 
 function setProgress(n){[1,2,3].forEach(i=>document.getElementById("d"+i).className="dot"+(i<=n?" on":""));}
@@ -305,8 +312,16 @@ function showPromo(){
 function applyPromo(){
   const val=document.getElementById("promo-input").value.trim().toUpperCase();
   const msg=document.getElementById("promo-msg");
-  if(PROMO_CODES.includes(val)){
+  if(val===CUSTOM_PROMO_CODE){
+    customPromoActive=true;
+    promoApplied=false;
+    document.getElementById("custom-discount-row").classList.add("show");
+    msg.textContent="Enter the discount percentage below.";
+    msg.className="promo-msg ok";
+  }else if(PROMO_CODES.includes(val)){
     promoApplied=true;
+    customPromoActive=false;
+    document.getElementById("custom-discount-row").classList.remove("show");
     msg.textContent="Code applied — new customer discount active.";
     msg.className="promo-msg ok";
     renderQuote();
@@ -314,6 +329,20 @@ function applyPromo(){
     msg.textContent="That code isn't valid.";
     msg.className="promo-msg bad";
   }
+}
+
+function applyCustomDiscount(){
+  const val=parseFloat(document.getElementById("custom-discount-input").value);
+  const msg=document.getElementById("promo-msg");
+  if(isNaN(val)||val<0||val>100){
+    msg.textContent="Enter a number between 0 and 100.";
+    msg.className="promo-msg bad";
+    return;
+  }
+  customDiscountPct=val/100;
+  msg.textContent="Custom discount of "+val+"% applied.";
+  msg.className="promo-msg ok";
+  renderQuote();
 }
 
 function computeQuote(){
@@ -364,7 +393,10 @@ function computeQuote(){
     if(adSpend>=5000) adFee = adSpend * 0.07;
   }
 
-  if(promoApplied){
+  if(customPromoActive){
+    baseFee = baseFee * (1-customDiscountPct);
+    oneTimeFee = oneTimeFee * (1-customDiscountPct);
+  }else if(promoApplied){
     baseFee = baseFee * 0.80;
     oneTimeFee = oneTimeFee * 0.80;
   }
@@ -407,7 +439,7 @@ function goStep3(){
 }
 
 function renderQuote(){
-  const q = promoApplied ? computeQuote() : lastQuote;
+  const q = (promoApplied||customPromoActive) ? computeQuote() : lastQuote;
   if(!q)return;
   document.getElementById("quote-intro").textContent="Here's what we put together for "+q.biz+", "+q.name+".";
   document.getElementById("term-card").style.display = q.hasRecurring ? "block" : "none";
