@@ -398,7 +398,7 @@ function computeQuote(){
 
   let baseFee=0, adFee=0, oneTimeFee=0, selected=[], serviceNote="", hasRecurring=false;
   let monthlyLineItems=[], oneTimeLineItems=[];
-  let bundleDiscountMonthly=0, bundleDiscountOneTime=0;
+  let bundleDiscountMonthly=0, bundleDiscountOneTime=0, hasBundleDiscount=false;
 
   if(isFullSystem){
     const flatBase=FULL_SYSTEM_BASE[stage];
@@ -463,37 +463,50 @@ function computeQuote(){
       if(stagesPresent.has("ai")) stageDisc.ai=0.20;
       if(stagesPresent.has("cx")) stageDisc.cx=0.15;
     }
+    hasBundleDiscount = stageDisc.marketing>0 || stageDisc.ai>0 || stageDisc.cx>0;
 
     rawMonthlyItems.forEach(it=>{
       const discounted=it.price * (1-stageDisc[it.stage]);
       bundleDiscountMonthly += (it.price - discounted);
       baseFee += discounted;
-      monthlyLineItems.push({name:it.name,price:roundPrice(discounted)});
+      monthlyLineItems.push({name:it.name,raw:it.price,afterStage:discounted});
     });
     rawOneTimeItems.forEach(it=>{
       const discounted=it.price * (1-stageDisc[it.stage]);
       bundleDiscountOneTime += (it.price - discounted);
       oneTimeFee += discounted;
-      oneTimeLineItems.push({name:it.name,price:roundPrice(discounted)});
+      oneTimeLineItems.push({name:it.name,raw:it.price,afterStage:discounted});
     });
 
     if(adSpend>=5000) adFee = adSpend * 0.07;
   }
 
-  let promoName=null, promoDiscountMonthly=0, promoDiscountOneTime=0;
+  let promoName=null, promoPct=0;
   if(customPromoActive){
     promoName="Founder's Promotion";
-    promoDiscountMonthly = baseFee * customDiscountPct;
-    promoDiscountOneTime = oneTimeFee * customDiscountPct;
-    baseFee = baseFee - promoDiscountMonthly;
-    oneTimeFee = oneTimeFee - promoDiscountOneTime;
+    promoPct=customDiscountPct;
   }else if(promoApplied){
     promoName=PROMO_NAMES[appliedPromoCode] || "Promo Discount";
-    promoDiscountMonthly = baseFee * 0.20;
-    promoDiscountOneTime = oneTimeFee * 0.20;
-    baseFee = baseFee - promoDiscountMonthly;
-    oneTimeFee = oneTimeFee - promoDiscountOneTime;
+    promoPct=0.20;
   }
+  const promoDiscountMonthly = baseFee * promoPct;
+  const promoDiscountOneTime = oneTimeFee * promoPct;
+  baseFee = baseFee - promoDiscountMonthly;
+  oneTimeFee = oneTimeFee - promoDiscountOneTime;
+
+  // finalize each line item's displayed price, applying the promo pct on top of its stage-discounted price
+  monthlyLineItems = monthlyLineItems.map(it=>({
+    name:it.name,
+    raw:roundPrice(it.raw),
+    final:roundPrice(it.afterStage*(1-promoPct)),
+    discounted: it.raw>it.afterStage*(1-promoPct)*1.001 // has any discount applied
+  }));
+  oneTimeLineItems = oneTimeLineItems.map(it=>({
+    name:it.name,
+    raw:roundPrice(it.raw),
+    final:roundPrice(it.afterStage*(1-promoPct)),
+    discounted: it.raw>it.afterStage*(1-promoPct)*1.001
+  }));
 
   if(selected.length===0){return null;}
 
@@ -502,8 +515,7 @@ function computeQuote(){
   const total = roundedBase + Math.round(adFee);
 
   return {name,email,biz,budget,stage,term,isFullSystem,selected,serviceNote,roundedBase,adFee:Math.round(adFee),total,adSpend,oneTimeFee:roundedOneTime,hasRecurring,
-    monthlyLineItems,oneTimeLineItems,
-    bundleDiscountMonthly:Math.round(bundleDiscountMonthly),bundleDiscountOneTime:Math.round(bundleDiscountOneTime),
+    monthlyLineItems,oneTimeLineItems,hasBundleDiscount,
     promoName,promoDiscountMonthly:Math.round(promoDiscountMonthly),promoDiscountOneTime:Math.round(promoDiscountOneTime)};
 }
 
@@ -551,31 +563,41 @@ function renderQuote(){
     html+="<div class='metric-grid'><div class='metric'><div class='mlabel'>Term</div><div class='mval'>"+termLabel+"</div></div><div class='metric'><div class='mlabel'>Total / month</div><div class='mval'>$"+q.total.toLocaleString()+"</div></div></div>";
     if(!q.isFullSystem && q.monthlyLineItems.length>1){
       q.monthlyLineItems.forEach(it=>{
-        html+="<div class='qline'><span>"+it.name+"</span><span>$"+it.price.toLocaleString()+"/mo</span></div>";
+        const priceHtml = it.discounted
+          ? "<s style='color:#aaa;font-weight:400;margin-right:8px'>$"+it.raw.toLocaleString()+"</s>$"+it.final.toLocaleString()+"/mo"
+          : "$"+it.final.toLocaleString()+"/mo";
+        html+="<div class='qline'><span>"+it.name+"</span><span>"+priceHtml+"</span></div>";
       });
-      if(q.bundleDiscountMonthly>0) html+="<div class='qline'><span>ZKC Bundle</span><span>-$"+q.bundleDiscountMonthly.toLocaleString()+"/mo</span></div>";
-      if(q.promoName && q.promoDiscountMonthly>0) html+="<div class='qline'><span>"+q.promoName+"</span><span>-$"+q.promoDiscountMonthly.toLocaleString()+"/mo</span></div>";
+    }else if(!q.isFullSystem && q.monthlyLineItems.length===1){
+      const it=q.monthlyLineItems[0];
+      const priceHtml = it.discounted
+        ? "<s style='color:#aaa;font-weight:400;margin-right:8px'>$"+it.raw.toLocaleString()+"</s>$"+it.final.toLocaleString()+"/mo"
+        : "$"+it.final.toLocaleString()+"/mo";
+      html+="<div class='qline'><span>Base fee</span><span>"+priceHtml+"</span></div>";
     }else{
       html+="<div class='qline'><span>Base fee</span><span>$"+q.roundedBase.toLocaleString()+"/mo</span></div>";
-      if(!q.isFullSystem && q.bundleDiscountMonthly>0) html+="<div class='qline'><span>ZKC Bundle</span><span>-$"+q.bundleDiscountMonthly.toLocaleString()+"/mo</span></div>";
-      if(q.promoName && q.promoDiscountMonthly>0) html+="<div class='qline'><span>"+q.promoName+"</span><span>-$"+q.promoDiscountMonthly.toLocaleString()+"/mo</span></div>";
     }
     if(q.adFee>0) html+="<div class='qline'><span>Ad spend fee (7% of $"+q.adSpend.toLocaleString()+")</span><span>$"+q.adFee.toLocaleString()+"/mo</span></div>";
     if(q.isFullSystem) html+="<div class='qline'><span>Ad spend fee</span><span>Included — $0</span></div>";
+    if(!q.isFullSystem && (q.hasBundleDiscount || q.promoName)){
+      const names=[]; if(q.hasBundleDiscount) names.push("ZKC Bundle"); if(q.promoName) names.push(q.promoName);
+      html+="<div class='qline'><span>Discounts applied</span><span>"+names.join(", ")+"</span></div>";
+    }
     html+="<div class='qline tot'><span>Total</span><span>$"+q.total.toLocaleString()+"/mo</span></div>";
   }
 
   if(q.oneTimeFee>0){
     html+="<div class='metric-grid'><div class='metric' style='grid-column:1 / -1'><div class='mlabel'>One-time price</div><div class='mval'>$"+q.oneTimeFee.toLocaleString()+"</div></div></div>";
-    if(q.oneTimeLineItems.length>1){
-      q.oneTimeLineItems.forEach(it=>{
-        html+="<div class='qline'><span>"+it.name+"</span><span>$"+it.price.toLocaleString()+"</span></div>";
-      });
-      if(q.bundleDiscountOneTime>0) html+="<div class='qline'><span>ZKC Bundle</span><span>-$"+q.bundleDiscountOneTime.toLocaleString()+"</span></div>";
-    }else if(q.bundleDiscountOneTime>0){
-      html+="<div class='qline'><span>ZKC Bundle</span><span>-$"+q.bundleDiscountOneTime.toLocaleString()+"</span></div>";
+    q.oneTimeLineItems.forEach(it=>{
+      const priceHtml = it.discounted
+        ? "<s style='color:#aaa;font-weight:400;margin-right:8px'>$"+it.raw.toLocaleString()+"</s>$"+it.final.toLocaleString()
+        : "$"+it.final.toLocaleString();
+      html+="<div class='qline'><span>"+it.name+"</span><span>"+priceHtml+"</span></div>";
+    });
+    if(q.hasBundleDiscount || q.promoName){
+      const names=[]; if(q.hasBundleDiscount) names.push("ZKC Bundle"); if(q.promoName) names.push(q.promoName);
+      html+="<div class='qline'><span>Discounts applied</span><span>"+names.join(", ")+"</span></div>";
     }
-    if(q.promoName && q.promoDiscountOneTime>0) html+="<div class='qline'><span>"+q.promoName+"</span><span>-$"+q.promoDiscountOneTime.toLocaleString()+"</span></div>";
     html+="<div class='qline tot'><span>Due at project start</span><span>$"+q.oneTimeFee.toLocaleString()+"</span></div>";
   }
 
